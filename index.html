@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASK & BFSK Moving Waveform & Receiver Simulator</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    canvas {
+      image-rendering: pixelated;
+    }
+    input[type=range] {
+      accent-color: #3b82f6;
+    }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-3 sm:p-5">
+
+  <div class="max-w-6xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 sm:p-6 shadow-xl space-y-5">
+    
+    <!-- Header -->
+    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-[var(--foreground)] flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full bg-blue-500 animate-pulse"></span>
+          Live ASK / BFSK Waveform & Receiver Simulator
+        </h1>
+        <p class="text-xs sm:text-sm text-[var(--muted-foreground)] mt-0.5">
+          Real-time passband modulation, channel impairment, coherent correlators & noncoherent envelope detection.
+        </p>
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="flex items-center gap-2">
+        <button id="btnPlayPause" class="px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white shadow transition flex items-center gap-1.5">
+          <span id="playIcon">⏸</span> <span id="playText">Pause</span>
+        </button>
+        <button id="btnReset" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-[var(--sidebar)] hover:bg-[var(--border)] text-[var(--foreground)] border border-[var(--border)] transition">
+          ↺ Reset
+        </button>
+      </div>
+    </div>
+
+    <!-- Interactive Controls Bar -->
+    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 bg-[var(--sidebar)]/40 p-4 rounded-xl border border-[var(--border)] text-xs sm:text-sm">
+      
+      <!-- Modulation Mode -->
+      <div class="space-y-1.5">
+        <label class="font-semibold text-[var(--foreground)]">Modulation Scheme</label>
+        <select id="modScheme" class="w-full bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="bfsk" selected>BFSK (Binary FSK)</option>
+          <option value="ask_ook">ASK (On-Off Keying OOK)</option>
+          <option value="ask_polar">ASK (Antipodal / 2-ASK)</option>
+        </select>
+      </div>
+
+      <!-- Receiver Detection Mode -->
+      <div class="space-y-1.5">
+        <label class="font-semibold text-[var(--foreground)]">Receiver Architecture</label>
+        <select id="rxMode" class="w-full bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="coherent" selected>Coherent Correlator (Phase-Matched)</option>
+          <option value="noncoherent">Noncoherent Quadrature Envelope (I² + Q²)</option>
+        </select>
+      </div>
+
+      <!-- Tone Spacing Preset (BFSK) -->
+      <div class="space-y-1.5" id="presetContainer">
+        <label class="font-semibold text-[var(--foreground)]">FSK Tone Spacing (Δf)</label>
+        <select id="fskPreset" class="w-full bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="1.0" selected>Δf = 1/Tb (Orthogonal Coherent & Noncoherent)</option>
+          <option value="0.5">Δf = 1/(2Tb) (Orthogonal Coherent / MSK)</option>
+          <option value="0.3">Δf = 0.3/Tb (Non-Orthogonal / Cross-talk)</option>
+          <option value="2.0">Δf = 2/Tb (Wide Spacing)</option>
+        </select>
+      </div>
+
+      <!-- Animation Speed -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between font-semibold text-[var(--foreground)]">
+          <span>Animation Speed</span>
+          <span id="speedVal" class="text-blue-500 font-mono">1.0x</span>
+        </div>
+        <input type="range" id="speedSlider" min="0.2" max="2.5" step="0.1" value="1.0" class="w-full cursor-pointer">
+      </div>
+
+      <!-- Channel Noise (SNR / EbN0) -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between font-semibold text-[var(--foreground)]">
+          <span>Channel Noise (Eb/N0)</span>
+          <span id="snrVal" class="text-blue-500 font-mono">14 dB</span>
+        </div>
+        <input type="range" id="snrSlider" min="0" max="30" step="1" value="14" class="w-full cursor-pointer">
+      </div>
+
+      <!-- Channel Phase Offset -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between font-semibold text-[var(--foreground)]">
+          <span>Channel Phase Shift (θ)</span>
+          <span id="phaseVal" class="text-amber-500 font-mono">0°</span>
+        </div>
+        <input type="range" id="phaseSlider" min="0" max="360" step="5" value="0" class="w-full cursor-pointer">
+      </div>
+
+      <!-- Live Stats & BER Monitor -->
+      <div class="space-y-1 md:col-span-2 flex items-center justify-around bg-[var(--card)] p-2 rounded-lg border border-[var(--border)]">
+        <div class="text-center">
+          <div class="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Processed Bits</div>
+          <div id="statBits" class="text-base font-bold font-mono text-[var(--foreground)]">0</div>
+        </div>
+        <div class="text-center">
+          <div class="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Bit Errors</div>
+          <div id="statErrors" class="text-base font-bold font-mono text-red-500">0</div>
+        </div>
+        <div class="text-center">
+          <div class="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Live BER</div>
+          <div id="statBER" class="text-base font-bold font-mono text-blue-500">0.00%</div>
+        </div>
+        <div class="text-center">
+          <div class="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider font-semibold">Orthogonality ρ</div>
+          <div id="statRho" class="text-base font-bold font-mono text-emerald-500">0.000</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Main Oscilloscope Display Canvas -->
+    <div class="relative bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-inner">
+      <canvas id="scopeCanvas" width="1100" height="680" class="w-full h-auto block"></canvas>
+    </div>
+
+    <!-- Explanation & Status Banner -->
+    <div id="statusBanner" class="p-3.5 rounded-xl text-xs sm:text-sm bg-blue-500/10 border border-blue-500/30 text-[var(--foreground)] flex items-start gap-2.5">
+      <span class="text-blue-500 text-lg leading-none">ℹ</span>
+      <div id="statusText" class="space-y-1">
+        <strong>BFSK with Coherent Detection:</strong> Frequency tones $f_0$ and $f_1$ are matched in phase with receiver basis functions. When $\Delta f = 1/T_b$ or $1/(2T_b)$, the cross-correlation $\rho = 0$.
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // STATE & SIMULATION PARAMETERS
+    // =========================================================================
+    const canvas = document.getElementById('scopeCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let isPlaying = true;
+    let animSpeed = 1.0;
+    let modScheme = 'bfsk'; // 'bfsk', 'ask_ook', 'ask_polar'
+    let rxMode = 'coherent'; // 'coherent', 'noncoherent'
+    let deltaFPreset = 1.0; // in multiples of 1/Tb
+    let ebN0_db = 14;
+    let channelPhaseDeg = 0;
+
+    // Time & Bit Timing
+    const bitDuration = 1.0; // 1 second normalized bit duration
+    const fs = 600; // samples per bit in physics simulation
+    let simTime = 0.0;
+    let bitStream = [];
+    let demodStream = [];
+    let totalBitsCount = 0;
+    let errorCount = 0;
+
+    // Carrier parameters
+    const baseFreq = 3.0; // 3 Hz for bit 0
+    let f0 = 3.0;
+    let f1 = 4.0; // f0 + deltaF
+
+    // Sliding window buffer for drawing
+    const historyDuration = 4.0; // Show 4 bit periods across the canvas width
+    let signalHistory = []; // { t, bit, tx, rx, corr0, corr1, i0, q0, i1, q1 }
+
+    // Correlator running accumulators
+    let acc_r0 = 0, acc_r1 = 0;
+    let acc_i0 = 0, acc_q0 = 0;
+    let acc_i1 = 0, acc_q1 = 0;
+    let lastProcessedBitIndex = -1;
+
+    // Seed initial bit stream
+    function initBits() {
+      bitStream = [];
+      demodStream = [];
+      totalBitsCount = 0;
+      errorCount = 0;
+      for (let i = 0; i < 20; i++) {
+        bitStream.push(Math.random() < 0.5 ? 0 : 1);
+      }
+    }
+    initBits();
+
+    // =========================================================================
+    // UI HANDLERS
+    // =========================================================================
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const playIcon = document.getElementById('playIcon');
+    const playText = document.getElementById('playText');
+    const btnReset = document.getElementById('btnReset');
+    const modSchemeSel = document.getElementById('modScheme');
+    const rxModeSel = document.getElementById('rxMode');
+    const fskPresetSel = document.getElementById('fskPreset');
+    const presetContainer = document.getElementById('presetContainer');
+    const speedSlider = document.getElementById('speedSlider');
+    const speedVal = document.getElementById('speedVal');
+    const snrSlider = document.getElementById('snrSlider');
+    const snrVal = document.getElementById('snrVal');
+    const phaseSlider = document.getElementById('phaseSlider');
+    const phaseVal = document.getElementById('phaseVal');
+
+    const statBits = document.getElementById('statBits');
+    const statErrors = document.getElementById('statErrors');
+    const statBER = document.getElementById('statBER');
+    const statRho = document.getElementById('statRho');
+    const statusText = document.getElementById('statusText');
+
+    btnPlayPause.addEventListener('click', () => {
+      isPlaying = !isPlaying;
+      playIcon.textContent = isPlaying ? '⏸' : '▶';
+      playText.textContent = isPlaying ? 'Pause' : 'Play';
+    });
+
+    btnReset.addEventListener('click', () => {
+      simTime = 0;
+      signalHistory = [];
+      initBits();
+      acc_r0 = acc_r1 = acc_i0 = acc_q0 = acc_i1 = acc_q1 = 0;
+      lastProcessedBitIndex = -1;
+      updateStats();
+    });
+
+    modSchemeSel.addEventListener('change', (e) => {
+      modScheme = e.target.value;
+      presetContainer.style.display = modScheme === 'bfsk' ? 'block' : 'none';
+      updateStatusBanner();
+    });
+
+    rxModeSel.addEventListener('change', (e) => {
+      rxMode = e.target.value;
+      updateStatusBanner();
+    });
+
+    fskPresetSel.addEventListener('change', (e) => {
+      deltaFPreset = parseFloat(e.target.value);
+      f1 = f0 + deltaFPreset;
+      updateStatusBanner();
+    });
+
+    speedSlider.addEventListener('input', (e) => {
+      animSpeed = parseFloat(e.target.value);
+      speedVal.textContent = animSpeed.toFixed(1) + 'x';
+    });
+
+    snrSlider.addEventListener('input', (e) => {
+      ebN0_db = parseFloat(e.target.value);
+      snrVal.textContent = ebN0_db >= 30 ? 'No Noise (∞)' : ebN0_db + ' dB';
+    });
+
+    phaseSlider.addEventListener('input', (e) => {
+      channelPhaseDeg = parseFloat(e.target.value);
+      phaseVal.textContent = channelPhaseDeg + '°';
+      updateStatusBanner();
+    });
+
+    function updateStatusBanner() {
+      const phaseRad = (channelPhaseDeg * Math.PI) / 180.0;
+      let text = '';
+      let rho = 0.0;
+
+      if (modScheme === 'bfsk') {
+        const deltaF = deltaFPreset;
+        const Tb = 1.0;
+        // Rho theoretical with phase offset:
+        const x = 2 * Math.PI * deltaF * Tb;
+        rho = (Math.sin(x + phaseRad) - Math.sin(phaseRad)) / x;
+        statRho.textContent = Math.abs(rho).toFixed(3);
+
+        if (rxMode === 'coherent') {
+          if (channelPhaseDeg !== 0) {
+            text = `<strong>⚠️ Coherent Phase Mismatch:</strong> Channel introduces ${channelPhaseDeg}° phase offset. Coherent correlation output degrades proportionally to cos(${channelPhaseDeg}°), leading to decision errors unless carrier phase is tracked.`;
+          } else if (Math.abs(rho) < 0.01) {
+            text = `<strong>✅ Orthogonal Coherent BFSK (Δf = ${deltaFPreset}/Tb):</strong> The cross-correlation between tone 0 (${f0} Hz) and tone 1 (${f1.toFixed(1)} Hz) is exactly 0. Maximum noise immunity achieved!`;
+          } else {
+            text = `<strong>⚠️ Non-Orthogonal Tone Spacing (Δf = ${deltaFPreset}/Tb):</strong> Cross-correlation is ρ = ${rho.toFixed(3)} ≠ 0. The two tone correlators experience energy leakage (cross-talk), increasing BER.`;
+          }
+        } else {
+          // Noncoherent
+          if (Math.abs(deltaFPreset - 0.5) < 0.01) {
+            text = `<strong>⚠️ Noncoherent Failure at Δf = 0.5/Tb:</strong> While 0.5/Tb is orthogonal for coherent detection (where phase is 0), under arbitrary channel phase the I and Q quadrature components cross-talk. Noncoherent detection requires Δf = 1/Tb minimum!`;
+          } else if (Math.abs(rho) < 0.01 || Math.abs(deltaFPreset - 1.0) < 0.01 || Math.abs(deltaFPreset - 2.0) < 0.01) {
+            text = `<strong>✅ Orthogonal Noncoherent BFSK (Δf = ${deltaFPreset}/Tb):</strong> Energy metric R² = I² + Q² fully captures signal energy regardless of the ${channelPhaseDeg}° channel phase shift!`;
+          } else {
+            text = `<strong>⚠️ Noncoherent Cross-talk:</strong> Spacing Δf = ${deltaFPreset}/Tb causes envelope leakage across frequency channels.`;
+          }
+        }
+      } else if (modScheme === 'ask_ook') {
+        statRho.textContent = 'N/A';
+        if (rxMode === 'coherent') {
+          text = `<strong>ASK / OOK Coherent Receiver:</strong> Demodulates symbol based on linear correlator against local synchronized carrier cos(2π fc t).`;
+        } else {
+          text = `<strong>ASK / OOK Noncoherent Envelope Detector:</strong> Extracts envelope R = √(I² + Q²), immune to channel phase rotation θ = ${channelPhaseDeg}°.`;
+        }
+      } else {
+        statRho.textContent = 'N/A';
+        text = `<strong>Antipodal 2-ASK / BPSK:</strong> Employs antipodal amplitudes {+1, -1}. Requires coherent phase tracking (noncoherent envelope cannot distinguish ±1).`;
+      }
+      statusText.innerHTML = text;
+    }
+    updateStatusBanner();
+
+    // =========================================================================
+    // PHYSICAL SIMULATION STEP
+    // =========================================================================
+    function getNoiseStd() {
+      if (ebN0_db >= 30) return 0.0;
+      const eb_n0_lin = Math.pow(10, ebN0_db / 10.0);
+      return Math.sqrt(1.0 / (2.0 * eb_n0_lin));
+    }
+
+    function gaussianRandom() {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    function stepPhysics(dt) {
+      const bitIndex = Math.floor(simTime / bitDuration);
+      
+      // Ensure bit stream is long enough
+      while (bitStream.length <= bitIndex + 5) {
+        bitStream.push(Math.random() < 0.5 ? 0 : 1);
+      }
+
+      const currentBit = bitStream[bitIndex];
+      const tInBit = simTime - (bitIndex * bitDuration);
+
+      // 1. Modulated Passband TX Signal
+      let tx = 0.0;
+      f0 = baseFreq;
+      f1 = baseFreq + deltaFPreset;
+
+      if (modScheme === 'bfsk') {
+        const freq = currentBit === 1 ? f1 : f0;
+        tx = Math.sqrt(2.0) * Math.cos(2 * Math.PI * freq * simTime);
+      } else if (modScheme === 'ask_ook') {
+        const amp = currentBit === 1 ? 2.0 : 0.0;
+        tx = amp * Math.cos(2 * Math.PI * baseFreq * simTime);
+      } else if (modScheme === 'ask_polar') {
+        const amp = currentBit === 1 ? Math.sqrt(2.0) : -Math.sqrt(2.0);
+        tx = amp * Math.cos(2 * Math.PI * baseFreq * simTime);
+      }
+
+      // 2. Channel Impairments: Phase Rotation + AWGN
+      const phaseRad = (channelPhaseDeg * Math.PI) / 180.0;
+      const noise = gaussianRandom() * getNoiseStd() * Math.sqrt(fs);
+      
+      // Passband phase shifted:
+      let rx_clean = 0.0;
+      if (modScheme === 'bfsk') {
+        const freq = currentBit === 1 ? f1 : f0;
+        rx_clean = Math.sqrt(2.0) * Math.cos(2 * Math.PI * freq * simTime + phaseRad);
+      } else if (modScheme === 'ask_ook') {
+        const amp = currentBit === 1 ? 2.0 : 0.0;
+        rx_clean = amp * Math.cos(2 * Math.PI * baseFreq * simTime + phaseRad);
+      } else if (modScheme === 'ask_polar') {
+        const amp = currentBit === 1 ? Math.sqrt(2.0) : -Math.sqrt(2.0);
+        rx_clean = amp * Math.cos(2 * Math.PI * baseFreq * simTime + phaseRad);
+      }
+      const rx = rx_clean + noise * 0.15;
+
+      // 3. Receiver Correlator Integrators (Running accumulation over current bit)
+      if (bitIndex !== lastProcessedBitIndex) {
+        // Bit boundary reached: perform decision on previous bit
+        if (lastProcessedBitIndex >= 0) {
+          let estimatedBit = 0;
+          if (modScheme === 'bfsk') {
+            if (rxMode === 'coherent') {
+              estimatedBit = acc_r1 > acc_r0 ? 1 : 0;
+            } else {
+              const metric0 = acc_i0 * acc_i0 + acc_q0 * acc_q0;
+              const metric1 = acc_i1 * acc_i1 + acc_q1 * acc_q1;
+              estimatedBit = metric1 > metric0 ? 1 : 0;
+            }
+          } else if (modScheme === 'ask_ook') {
+            if (rxMode === 'coherent') {
+              estimatedBit = acc_r0 > 0.5 ? 1 : 0;
+            } else {
+              const env = Math.sqrt(acc_i0 * acc_i0 + acc_q0 * acc_q0);
+              estimatedBit = env > 0.7 ? 1 : 0;
+            }
+          } else if (modScheme === 'ask_polar') {
+            estimatedBit = acc_r0 > 0.0 ? 1 : 0;
+          }
+
+          demodStream.push(estimatedBit);
+          totalBitsCount++;
+          if (estimatedBit !== bitStream[lastProcessedBitIndex]) {
+            errorCount++;
+          }
+          updateStats();
+        }
+
+        // Reset accumulators for new bit
+        acc_r0 = acc_r1 = acc_i0 = acc_q0 = acc_i1 = acc_q1 = 0;
+        lastProcessedBitIndex = bitIndex;
+      }
+
+      // Basis functions (local synchronized time in bit interval)
+      const phi0 = Math.sqrt(2.0) * Math.cos(2 * Math.PI * f0 * tInBit);
+      const phi1 = Math.sqrt(2.0) * Math.cos(2 * Math.PI * f1 * tInBit);
+      const phi0_q = Math.sqrt(2.0) * Math.sin(2 * Math.PI * f0 * tInBit);
+      const phi1_q = Math.sqrt(2.0) * Math.sin(2 * Math.PI * f1 * tInBit);
+
+      acc_r0 += rx * phi0 * dt;
+      acc_r1 += rx * phi1 * dt;
+      acc_i0 += rx * phi0 * dt;
+      acc_q0 += rx * phi0_q * dt;
+      acc_i1 += rx * phi1 * dt;
+      acc_q1 += rx * phi1_q * dt;
+
+      // Append snapshot to history
+      signalHistory.push({
+        t: simTime,
+        bitIndex: bitIndex,
+        bit: currentBit,
+        tx: tx,
+        rx: rx,
+        r0: acc_r0,
+        r1: acc_r1,
+        env0: Math.sqrt(acc_i0 * acc_i0 + acc_q0 * acc_q0),
+        env1: Math.sqrt(acc_i1 * acc_i1 + acc_q1 * acc_q1)
+      });
+
+      // Maintain buffer length
+      const minTime = simTime - historyDuration;
+      while (signalHistory.length > 0 && signalHistory[0].t < minTime) {
+        signalHistory.shift();
+      }
+    }
+
+    function updateStats() {
+      statBits.textContent = totalBitsCount;
+      statErrors.textContent = errorCount;
+      const ber = totalBitsCount > 0 ? (errorCount / totalBitsCount) * 100 : 0;
+      statBER.textContent = ber.toFixed(2) + '%';
+      statBER.className = `text-base font-bold font-mono ${ber > 1 ? 'text-red-400' : 'text-emerald-400'}`;
+    }
+
+    // =========================================================================
+    // OSCILLOSCOPE DRAWING ROUTINES
+    // =========================================================================
+    function drawScope() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const w = canvas.width;
+      const h = canvas.height;
+
+      // Background grid
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      const gridStep = 40;
+      for (let x = 0; x < w; x += gridStep) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y < h; y += gridStep) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      if (signalHistory.length < 2) return;
+
+      // 4 Display Channels / Tracks:
+      // Track 1: Binary Data Sequence (top)
+      // Track 2: Transmitted Passband Signal s(t)
+      // Track 3: Received Noisy Signal r(t)
+      // Track 4: Receiver Correlator / Energy Accumulator Output (bottom)
+      const tracks = [
+        { name: '1. Binary Input Bits b(t)', yCenter: 65, height: 75, color: '#38bdf8' },
+        { name: '2. Transmitted Passband Signal s(t)', yCenter: 200, height: 120, color: '#4ade80' },
+        { name: '3. Received Passband Waveform r(t) [with Noise & Phase Offset]', yCenter: 360, height: 120, color: '#fbbf24' },
+        { name: rxMode === 'coherent' ? '4. Coherent Correlators: ∫ r(t)·φ₀(t) [Blue] vs ∫ r(t)·φ₁(t) [Purple]' : '4. Noncoherent Envelope Metric: √(I₀²+Q₀²) [Blue] vs √(I₁²+Q₁²) [Purple]', yCenter: 540, height: 160, color: '#a855f7' }
+      ];
+
+      const tEnd = simTime;
+      const tStart = simTime - historyDuration;
+
+      // Draw Track separators & Labels
+      tracks.forEach((tr, i) => {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(10, tr.yCenter - tr.height / 2, w - 20, tr.height);
+        ctx.strokeStyle = '#334155';
+        ctx.strokeRect(10, tr.yCenter - tr.height / 2, w - 20, tr.height);
+
+        // Center zero line
+        ctx.strokeStyle = '#1e293b';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(10, tr.yCenter);
+        ctx.lineTo(w - 10, tr.yCenter);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Track title
+        ctx.font = 'bold 11px system-ui, sans-serif';
+        ctx.fillStyle = tr.color;
+        ctx.fillText(tr.name, 20, tr.yCenter - tr.height / 2 + 16);
+      });
+
+      // Draw Vertical Bit Boundary Markers
+      const firstBitIdx = Math.floor(tStart / bitDuration);
+      const lastBitIdx = Math.ceil(tEnd / bitDuration);
+
+      for (let b = firstBitIdx; b <= lastBitIdx; b++) {
+        const bitT = b * bitDuration;
+        const x = ((bitT - tStart) / historyDuration) * (w - 40) + 20;
+
+        if (x >= 20 && x <= w - 20) {
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, 25);
+          ctx.lineTo(x, h - 25);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Bit Label text
+          if (b < bitStream.length && b >= 0) {
+            const nextX = (((b + 1) * bitDuration - tStart) / historyDuration) * (w - 40) + 20;
+            const midX = (x + nextX) / 2;
+            if (midX >= 20 && midX <= w - 20) {
+              const bitVal = bitStream[b];
+              ctx.font = 'bold 13px monospace';
+              ctx.fillStyle = bitVal === 1 ? '#38bdf8' : '#94a3b8';
+              ctx.fillText(`Bit: ${bitVal}`, midX - 20, 48);
+            }
+          }
+        }
+      }
+
+      // Convert time to X pixel coordinate
+      function timeToX(t) {
+        return ((t - tStart) / historyDuration) * (w - 40) + 20;
+      }
+
+      // --- Draw Track 1: Binary Step Waveform ---
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < signalHistory.length; i++) {
+        const pt = signalHistory[i];
+        const x = timeToX(pt.t);
+        const y = tracks[0].yCenter + (pt.bit === 1 ? -18 : 18);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+
+      // --- Draw Track 2: Modulated TX Signal ---
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      started = false;
+      for (let i = 0; i < signalHistory.length; i++) {
+        const pt = signalHistory[i];
+        const x = timeToX(pt.t);
+        const y = tracks[1].yCenter - pt.tx * 32;
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+
+      // --- Draw Track 3: Received Signal RX ---
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      started = false;
+      for (let i = 0; i < signalHistory.length; i++) {
+        const pt = signalHistory[i];
+        const x = timeToX(pt.t);
+        const y = tracks[2].yCenter - pt.rx * 26;
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+
+      // --- Draw Track 4: Correlator Metrics / Decision Integrators ---
+      if (modScheme === 'bfsk') {
+        if (rxMode === 'coherent') {
+          // Tone 0 Correlator (Blue)
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          started = false;
+          for (let i = 0; i < signalHistory.length; i++) {
+            const pt = signalHistory[i];
+            const x = timeToX(pt.t);
+            const y = tracks[3].yCenter - pt.r0 * 45;
+            if (!started) { ctx.moveTo(x, y); started = true; }
+            else { ctx.lineTo(x, y); }
+          }
+          ctx.stroke();
+
+          // Tone 1 Correlator (Purple)
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          started = false;
+          for (let i = 0; i < signalHistory.length; i++) {
+            const pt = signalHistory[i];
+            const x = timeToX(pt.t);
+            const y = tracks[3].yCenter - pt.r1 * 45;
+            if (!started) { ctx.moveTo(x, y); started = true; }
+            else { ctx.lineTo(x, y); }
+          }
+          ctx.stroke();
+        } else {
+          // Noncoherent Envelope 0 (Blue)
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          started = false;
+          for (let i = 0; i < signalHistory.length; i++) {
+            const pt = signalHistory[i];
+            const x = timeToX(pt.t);
+            const y = tracks[3].yCenter + 40 - pt.env0 * 55;
+            if (!started) { ctx.moveTo(x, y); started = true; }
+            else { ctx.lineTo(x, y); }
+          }
+          ctx.stroke();
+
+          // Noncoherent Envelope 1 (Purple)
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          started = false;
+          for (let i = 0; i < signalHistory.length; i++) {
+            const pt = signalHistory[i];
+            const x = timeToX(pt.t);
+            const y = tracks[3].yCenter + 40 - pt.env1 * 55;
+            if (!started) { ctx.moveTo(x, y); started = true; }
+            else { ctx.lineTo(x, y); }
+          }
+          ctx.stroke();
+        }
+      } else {
+        // ASK Correlator / Envelope
+        ctx.strokeStyle = rxMode === 'coherent' ? '#38bdf8' : '#c084fc';
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        started = false;
+        for (let i = 0; i < signalHistory.length; i++) {
+          const pt = signalHistory[i];
+          const x = timeToX(pt.t);
+          const val = rxMode === 'coherent' ? pt.r0 : pt.env0;
+          const y = tracks[3].yCenter - val * 40;
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else { ctx.lineTo(x, y); }
+        }
+        ctx.stroke();
+
+        // Decision threshold line for ASK
+        ctx.strokeStyle = '#ef4444';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        const threshY = tracks[3].yCenter - 0.5 * 40;
+        ctx.moveTo(20, threshY);
+        ctx.lineTo(w - 20, threshY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Legend in bottom corner
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(w - 220, h - 35, 200, 25);
+      ctx.strokeStyle = '#334155';
+      ctx.strokeRect(w - 220, h - 35, 200, 25);
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('■ Tone 0 (f₀)', w - 210, h - 19);
+      ctx.fillStyle = '#c084fc';
+      ctx.fillText('■ Tone 1 (f₁)', w - 120, h - 19);
+    }
+
+    // =========================================================================
+    // ANIMATION LOOP
+    // =========================================================================
+    let lastTime = performance.now();
+    function animate(currentTime) {
+      const deltaSec = (currentTime - lastTime) / 1000.0;
+      lastTime = currentTime;
+
+      if (isPlaying) {
+        const dt = Math.min(deltaSec, 0.05) * animSpeed;
+        const subSteps = 6;
+        const subDt = dt / subSteps;
+        for (let s = 0; s < subSteps; s++) {
+          simTime += subDt;
+          stepPhysics(subDt);
+        }
+      }
+
+      drawScope();
+      requestAnimationFrame(animate);
+    }
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
